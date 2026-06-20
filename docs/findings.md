@@ -47,6 +47,17 @@ Indigenous languages. Current best **preview-0.3 (GSPO) = 66.0 WER / 28.3 CER**.
   but **CC BY-NC-SA** → non-commercial; flag before any release that bundles them.
 - **CIEMPIESS Mexican Spanish (CC BY-SA, ~100 h)**: cheap WER win for Spanish test clips.
 
+### BASELINE — preview-0.3 raw-greedy dev triage (the bar to beat)
+`eval_dev_fast.py`, 23×20=460 dev clips, raw greedy (no temp-fallback → looping visible):
+- **Overall WER 89.2 / CER 50.5 / LOOP 11.3%** (vs fair-test 66/28 — fallback masks loops).
+- **Catastrophic loopers** (drive the average): nhq 187/loop30% (only 258 train samples!),
+  pmq 157/25%, trq 142/15%, xti 140, mig 118/25%, zts 111/20%, tcf loop30%, amu loop30%.
+- **Already near-usable** (proof WER≤20/lang is reachable): ztp 50.7/CER20/loop5%,
+  ztn 55, vmj 55/CER21, vmc 64/CER19.7/loop0%, zpv 70/CER23/loop0%.
+- **Read**: the average is wrecked by ~6-8 looping languages, several data-starved.
+  Killing the loops + feeding the starved langs is the path. Good langs already prove
+  the per-language floor is low.
+
 ### Research notes (2026-06-20)
 - **WER ≤20 is achievable for this language class.** Reported low-resource agglutinative
   results (e.g. SeTswana) go from ~223% WER (catastrophic looping) to ~13% under proper
