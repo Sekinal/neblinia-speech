@@ -47,6 +47,20 @@ Indigenous languages. Current best **preview-0.3 (GSPO) = 66.0 WER / 28.3 CER**.
   but **CC BY-NC-SA** → non-commercial; flag before any release that bundles them.
 - **CIEMPIESS Mexican Spanish (CC BY-SA, ~100 h)**: cheap WER win for Spanish test clips.
 
+### NEGATIVE — decode guards hurt (reduplication); continuation RL plateaus (2026-06-20)
+- **Decode guards** (`no_repeat_ngram_size=3` + `repetition_penalty=1.15`) on preview-0.9:
+  WER 61.61 vs unguarded 58.99 — **WORSE**. These polysynthetic langs use **reduplication
+  grammatically**, so penalizing repetition suppresses CORRECT output. Helped the worst
+  looper (nhq 100→82) but hurt Spanish (18.8→20.7) and reduplicating langs (vmj 66→78).
+  → **"No repetition" must come from RL training, not decode hacks.** The RL'd model's
+  normal temp-fallback decode (= the fair eval) is already loop-free. **Leaderboard model
+  IS the product model** — no separate guarded version. (eval_fw_guarded.py kept for record.)
+- **Continuation RL** (preview-0.10-rl2, GSPO from the already-RL'd preview-0.9 base, lower
+  lr + stronger anti-rep): dev CER stuck 0.43–0.44, never beat the 0.414 starting point.
+  More RL of the same kind = diminishing returns. Killed. → to beat 59, need a BETTER BASE
+  or MORE DATA, not more RL. Next: balanced-broad base (CV capped 2500/lang so the 23 test
+  langs get ~half the weight vs ¼) → fresh RL.
+
 ### 🎯 NEW BEST — preview-0.9-broadgspo (data + RL) = 58.99 / 26.45 (2026-06-20)
 Fair faster-whisper eval (auto mode, strict leaderboard parity, n=5925):
 - **WER 58.99 / CER 26.45** vs prior best preview-0.3 = 66.02 / 28.26 → **−7.0 WER**.
