@@ -47,6 +47,32 @@ Indigenous languages. Current best **preview-0.3 (GSPO) = 66.0 WER / 28.3 CER**.
   but **CC BY-NC-SA** → non-commercial; flag before any release that bundles them.
 - **CIEMPIESS Mexican Spanish (CC BY-SA, ~100 h)**: cheap WER win for Spanish test clips.
 
+### PIVOT — teacher-forced SFT amplifies looping; RL is the real lever (2026-06-20)
+The biggest finding of the campaign. Hard evidence:
+- **preview-0.5 (all-mod LoRA)**: teacher-forced eval_wer *improved* monotonically
+  (78.6→64.5, eval_loss 1.95→1.33) — looked great. But the **autoregressive raw-greedy
+  dev triage = WER 139.7 / CER 87.5 / LOOP 26.3%** — WORSE than the preview-0.3 baseline
+  (89/50/11%). More adapter capacity → better teacher-forced fit → **worse free-running
+  generation** (exposure bias). Per-lang: pmq 273%/loop65%, zoh 284%/loop40%, vmp 299%.
+- **Implication 1**: the in-training `eval_wer` (teacher-forced, `predict_with_generate=
+  False`) ANTI-correlates with real WER in late training. `load_best_model_at_end` on it
+  saves the MOST-overfit/loopiest checkpoint. → must select checkpoints by autoregressive
+  triage, and ideally switch eval to generation on a dev subset.
+- **Implication 2 (the pivot)**: preview-0.3 reached 66 *because GSPO (RL) optimizes
+  free-running sampled output* — directly fixing exposure bias. **More SFT ≠ the answer.
+  The path to WER≤20 is RL (GSPO/MGPO) on a good base + more data**, with a strong
+  anti-repetition reward. Likely best SFT base = LIGHT adapter (less overfit-looping),
+  then heavy RL. (q,v-only may beat all-mod as an RL base — to verify.)
+
+### ERROR + FIX — Unsloth full-FT broken for Whisper + poisons the cache (2026-06-20)
+- `--full-finetune` (Unsloth `full_finetuning=True`) crashes Whisper at step 0:
+  `ValueError: cannot specify both decoder_input_ids and decoder_inputs_embeds`
+  (in unsloth_compiled_cache/unsloth_compiled_module_whisper.py).
+- **Worse**: the crash leaves a CORRUPTED `unsloth_compiled_cache/` → the next LoRA run
+  inherits the broken compiled module and crashes identically at step 0 (broad-pretrain
+  hit this). **Fix**: `rm -rf unsloth_compiled_cache` before relaunching; **never use
+  `--full-finetune` with Unsloth+Whisper**. (Full-FT would need a non-Unsloth HF path.)
+
 ### ERROR + FIX — 5h GPU idle from pgrep self-match (2026-06-20)
 - **What happened**: preview-0.5 finished cleanly at 10:03 but the chain watcher never
   fired full-FT — **GPU sat idle ~5 hours**. Same class of waste flagged before.
