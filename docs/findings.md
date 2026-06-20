@@ -47,6 +47,19 @@ Indigenous languages. Current best **preview-0.3 (GSPO) = 66.0 WER / 28.3 CER**.
   but **CC BY-NC-SA** → non-commercial; flag before any release that bundles them.
 - **CIEMPIESS Mexican Spanish (CC BY-SA, ~100 h)**: cheap WER win for Spanish test clips.
 
+### ✅ CONSOLIDATION — ship preview-0.9 as NeblinIA-Speech preview-0.1 (2026-06-20)
+Decision (user): consolidate at the best result rather than chase uncertain incremental gains
+against the data ceiling. **Deliverable = preview-0.9-broadgspo, 58.99 WER / 26.45 CER** (#1
+fair, −7 vs prior). See MODEL_CARD.md. Model persisted to models/neblinia-preview-0.9-broadgspo/
+{best,ct2} (out of ephemeral /tmp).
+- balanced-broad (preview-0.11) confirmed the early-stop lesson: full 2-epoch SFT overfit →
+  autoregressive WER 123/loop 24% (worse than early-stopped broad's 108/16%). Balancing (less
+  CV data) also hurt. So the winning recipe stays: full 97k CV data + EARLY STOP + GSPO RL.
+- preview-0.12 (RL from the overfit balanced base) killed — low EV, wouldn't beat 59.
+- Untried lever left for a future round: large-v3 (32-layer decoder) capacity — slow RL cycle,
+  deferred. Path to <50 WER likely needs more per-language data than exists openly.
+- HF leaderboard push pending token ROTATION (token was pasted in plaintext 3x → burned).
+
 ### NEGATIVE — decode guards hurt (reduplication); continuation RL plateaus (2026-06-20)
 - **Decode guards** (`no_repeat_ngram_size=3` + `repetition_penalty=1.15`) on preview-0.9:
   WER 61.61 vs unguarded 58.99 — **WORSE**. These polysynthetic langs use **reduplication
