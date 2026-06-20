@@ -47,6 +47,34 @@ Indigenous languages. Current best **preview-0.3 (GSPO) = 66.0 WER / 28.3 CER**.
   but **CC BY-NC-SA** → non-commercial; flag before any release that bundles them.
 - **CIEMPIESS Mexican Spanish (CC BY-SA, ~100 h)**: cheap WER win for Spanish test clips.
 
+### Research notes (2026-06-20)
+- **WER ≤20 is achievable for this language class.** Reported low-resource agglutinative
+  results (e.g. SeTswana) go from ~223% WER (catastrophic looping) to ~13% under proper
+  fine-tuning. Our 66 has large headroom; looping collapses with enough adaptation.
+- **turbo = 4 decoder layers vs large-v3 = 32.** turbo shows "larger degradation on some
+  languages"; the shallow decoder is a prime suspect for repetition collapse on the hard
+  langs. → queued `preview-0.7-largev3` (all-mod LoRA on large-v3) as the capacity test.
+- **Label smoothing 0.1**: standard mitigation for overconfident repetition in seq2seq
+  ASR. Added as `--label-smoothing`; enabled on full-FT (0.6) and large-v3 (0.7) runs.
+- **Multistage fine-tuning** (broad related-family + Spanish pretrain → exact-variety
+  fine-tune) is the main DATA lever if recipe levers plateau — deferred until we see
+  whether full-FT breaks the plateau (don't invest hours in data before knowing it's the
+  bottleneck).
+- In-training `eval_wer` is teacher-forced; for the real looping signal use
+  `eval_dev_fast.py` (raw-greedy, no temp-fallback, reports loop%).
+
+### Experiment matrix (this campaign)
+| id | base | method | key knobs | status |
+|---|---|---|---|---|
+| 0.5-allmod | turbo | LoRA all-linear | r64, lr2e-4, 4ep, ES4 | RUNNING |
+| 0.6-fullft | turbo | full fine-tune | lr1e-5, 3ep, ls0.1, ES4 | queued (auto after 0.5) |
+| 0.7-largev3 | large-v3 | LoRA all-linear | r64, lr2e-4, 3ep, ls0.1 | staged (conditional) |
+| (later) | best | GSPO/MGPO RL | anti-repetition reward | pending |
+| (later) | best | + open-data multistage | CV CC0 + CIEMPIESS | pending |
+
+Decision rule: eval each on dev triage (loop% + WER) first, full fair eval on winners.
+Kill any run whose dev eval_loss climbs for 4 evals (early-stop handles automatically).
+
 ### Tooling / infra notes
 - New laptop (macOS) drives the box `root@154.54.100.217:40299`. Repos synced locally
   (code+docs only) for codex/Read/Edit; rsync to box to run.

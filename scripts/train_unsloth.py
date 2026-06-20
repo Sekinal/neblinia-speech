@@ -155,6 +155,8 @@ def main():
                     help="early-stopping patience in eval steps (0 = off)")
     ap.add_argument("--base", default=BASE,
                     help="base model id (e.g. openai/whisper-large-v3 for the 32-layer decoder)")
+    ap.add_argument("--label-smoothing", type=float, default=0.0,
+                    help="label_smoothing_factor (0.1 mitigates overconfident repetition)")
     ap.add_argument("--outdir", default=str(OUTDIR))
     args = ap.parse_args()
     outdir = Path(args.outdir)
@@ -226,6 +228,7 @@ def main():
         output_dir=str(outdir), per_device_train_batch_size=args.batch,
         per_device_eval_batch_size=args.batch, gradient_accumulation_steps=1,
         learning_rate=args.lr, warmup_ratio=args.warmup, num_train_epochs=args.epochs, bf16=True,
+        label_smoothing_factor=args.label_smoothing,
         logging_steps=25, eval_strategy="steps", eval_steps=args.eval_steps,
         save_strategy="steps", save_steps=args.eval_steps, save_total_limit=2,
         load_best_model_at_end=True,
