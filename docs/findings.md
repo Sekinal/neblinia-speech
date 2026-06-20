@@ -47,6 +47,19 @@ Indigenous languages. Current best **preview-0.3 (GSPO) = 66.0 WER / 28.3 CER**.
   but **CC BY-NC-SA** → non-commercial; flag before any release that bundles them.
 - **CIEMPIESS Mexican Spanish (CC BY-SA, ~100 h)**: cheap WER win for Spanish test clips.
 
+### 🎯 NEW BEST — preview-0.9-broadgspo (data + RL) = 58.99 / 26.45 (2026-06-20)
+Fair faster-whisper eval (auto mode, strict leaderboard parity, n=5925):
+- **WER 58.99 / CER 26.45** vs prior best preview-0.3 = 66.02 / 28.26 → **−7.0 WER**.
+- Recipe: broad-pretrain (97k omni+CV) SFT base → GSPO RL (group8, 400 steps, dev-CER
+  0.544→0.422). The **data + RL** combination, exactly as the evidence predicted.
+- Evals fast (no catastrophic looping) — RL fixed the worst loops.
+- **Bimodal per-language WER** (the remaining battle): usable-ish — spa 18.8, zor 39,
+  zoh 50, tlp 53, amu 56; still failing — zts 106, nhq 100, xti 89, mig 86, nhg 80.
+  The ~6-8 hard/starved langs (Mixtec/Zapotec tonal, nhq 258 samples) cap the average.
+- Next: continuation RL (preview-0.10-rl2, lower lr 7e-7, stronger anti-rep w-rep0.8)
+  from this base, targeting the loopers. HF leaderboard push pending token rotation;
+  recorded here as the authoritative log.
+
 ### RESULT — data scale helps autoregression, but RL is decisive (2026-06-20)
 Autoregressive raw-greedy dev triage (eval_dev_fast, 460 clips), the ONLY trustworthy metric:
 | model | data | recipe | WER | CER | loop% |
