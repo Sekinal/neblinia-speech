@@ -47,6 +47,23 @@ Indigenous languages. Current best **preview-0.3 (GSPO) = 66.0 WER / 28.3 CER**.
   but **CC BY-NC-SA** → non-commercial; flag before any release that bundles them.
 - **CIEMPIESS Mexican Spanish (CC BY-SA, ~100 h)**: cheap WER win for Spanish test clips.
 
+### ERROR + FIX — 5h GPU idle from pgrep self-match (2026-06-20)
+- **What happened**: preview-0.5 finished cleanly at 10:03 but the chain watcher never
+  fired full-FT — **GPU sat idle ~5 hours**. Same class of waste flagged before.
+- **Root cause**: watchers used `while pgrep -f "0.5-allmod"; do sleep; done` to detect
+  "training still running". `pgrep -f PATTERN` matches the full command line of *every*
+  process — including (a) the watcher's own inline command if PATTERN is in it, and (b)
+  any *other* concurrent SSH command of mine that contains PATTERN (every status check
+  did). So the loop kept "seeing" the run alive and never advanced. A stuck background
+  monitor with `0.5-allmod` in its cmdline kept the chain blocked indefinitely.
+  Bonus footgun: `pkill -f "while pgrep"` killed its *own* shell (pattern in cmdline).
+- **FIX**: detect completion via the launcher's **EXIT marker in the log**, not pgrep:
+  `while ! grep -q "^EXIT" "$LOG"; do sleep 30; done`. Each launcher appends
+  `echo "EXIT $? at $(date)"` when training ends. Robust, no cmdline matching.
+  General rule: never put a match/kill PATTERN in a command whose own command line then
+  contains PATTERN. For "is it on the GPU?", trust `nvidia-smi --query-compute-apps`, not
+  `pgrep` on a name. Keep launchers/state under /root (container wipes /tmp).
+
 ### DATA DISCOVERY — 75k CV clips already on disk (multistage fuel)
 `data/mdc/` already holds **Common Voice v26 (CC0)** for 10 related MX Indigenous langs,
 extracted, standard format, **soundfile reads the mp3s directly** (no align/materialize):
