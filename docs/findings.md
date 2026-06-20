@@ -47,6 +47,19 @@ Indigenous languages. Current best **preview-0.3 (GSPO) = 66.0 WER / 28.3 CER**.
   but **CC BY-NC-SA** → non-commercial; flag before any release that bundles them.
 - **CIEMPIESS Mexican Spanish (CC BY-SA, ~100 h)**: cheap WER win for Spanish test clips.
 
+### DATA DISCOVERY — 75k CV clips already on disk (multistage fuel)
+`data/mdc/` already holds **Common Voice v26 (CC0)** for 10 related MX Indigenous langs,
+extracted, standard format, **soundfile reads the mp3s directly** (no align/materialize):
+cux 9016, zoc 8886, ncx 8644, sei 8006, tar 7895, pua 7537, yaq 6925, nlv 6667,
+mau 6040, cut 5481 = **~75k validated clips** (3x our omni 22.5k). `zoc` (Zoque) is the
+same family as test `zoh`; ncx/nlv are more Nahuatl. `ciempiess_spa` (Mexican Spanish,
+CC BY-SA) is also materialized.
+- `build_broad_manifest.py` → `manifest_broad.jsonl` = omni-23 (22.5k) + CV-10 (75k) =
+  **97,646 clips**. CV langs are TRAIN-ONLY transfer fuel; dev stays omni-23 (the test).
+- **Plan = multistage** (CV dominates the mix, so don't just blend): Stage-1 broad-pretrain
+  on 97k → save merged → Stage-2 specialize on omni-22.5k via `--base <stage1>`. Deploy if
+  recipe levers (0.5/0.6/0.7) plateau. Manifest ready; trainer `--base` supports the resume.
+
 ### BASELINE — preview-0.3 raw-greedy dev triage (the bar to beat)
 `eval_dev_fast.py`, 23×20=460 dev clips, raw greedy (no temp-fallback → looping visible):
 - **Overall WER 89.2 / CER 50.5 / LOOP 11.3%** (vs fair-test 66/28 — fallback masks loops).
