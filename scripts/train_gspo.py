@@ -139,7 +139,14 @@ def main():
     ap.add_argument("--mgpo", action="store_true", help="enable MaxEnt-Guided weighting")
     ap.add_argument("--mgpo-gamma", type=float, default=2.0)
     ap.add_argument("--mgpo-tau", type=float, default=0.3, help="CER<tau counts as a 'correct' sample")
+    ap.add_argument("--adapter", default=None, help="LoRA adapter dir to RL from (default preview-0.2)")
+    ap.add_argument("--base", default=None, help="base model id (default whisper-large-v3-turbo)")
     args = ap.parse_args()
+    global ADAPTER, BASE
+    if args.adapter:
+        ADAPTER = Path(args.adapter)
+    if args.base:
+        BASE = args.base
     rw_w = {"cer": args.w_cer, "wer": args.w_wer, "len": args.w_len, "rep": args.w_rep}
     outdir = Path(args.outdir) if getattr(args, "outdir", None) else OUTDIR
     print(f"GSPO config: {vars(args)}", flush=True)
