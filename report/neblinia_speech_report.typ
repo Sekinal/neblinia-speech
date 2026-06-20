@@ -142,6 +142,12 @@ reports per-language WER, CER, and a loop rate (fraction of clips where a 3-gram
 three or more times in a row). All checkpoint selection uses this autoregressive triage,
 not the teacher-forced number.
 
+#figure(
+  image("figures/fig4_tf_trap.png", width: 92%),
+  caption: [The teacher-forced trap. For two supervised runs, the optimistic teacher-forced
+  WER (gray) looks good while the real autoregressive WER (orange) is far worse.],
+)
+
 = Methods
 
 == Supervised fine-tuning
@@ -201,6 +207,13 @@ when data exists. The languages above 85 (`mig`, `xti`, `nhq`, `zts`) are the on
 loop and that lack the data to be fixed by the current recipe. `nhq`, with only 258 training
 segments, is the clearest case of data starvation.
 
+#figure(
+  image("figures/fig1_per_language.png", width: 100%),
+  caption: [Per-language WER on the fair benchmark. The distribution is bimodal: a few
+  languages approach usable quality while a tail of hard or data-starved languages caps the
+  average at 58.99.],
+)
+
 == What worked, measured autoregressively
 
 The autoregressive development triage (raw greedy, 460 clips) is the metric that tracks
@@ -221,6 +234,18 @@ WER from 139 to 108, so data scale helps free-running generation. But the superv
 still loses to the earlier GSPO model, because reinforcement learning is decisive. Applying
 GSPO to the broad base drove held-out greedy dev CER from 0.544 to 0.422 and produced the
 final 58.99 fair-eval result.
+
+#figure(
+  image("figures/fig3_loop_vs_wer.png", width: 96%),
+  caption: [Looping and WER are tightly coupled. More data moves a configuration down and
+  left (less looping, lower WER); reinforcement learning moves it further still.],
+)
+
+#figure(
+  image("figures/fig2_rl_trajectory.png", width: 96%),
+  caption: [GSPO on the broad base. The held-out greedy (autoregressive) dev CER falls from
+  0.544 to 0.422. This is the metric that tracks real quality.],
+)
 
 = What failed
 
