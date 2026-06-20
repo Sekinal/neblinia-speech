@@ -64,14 +64,21 @@ The biggest finding of the campaign. Hard evidence:
   anti-repetition reward. Likely best SFT base = LIGHT adapter (less overfit-looping),
   then heavy RL. (q,v-only may beat all-mod as an RL base — to verify.)
 
-### ERROR + FIX — Unsloth full-FT broken for Whisper + poisons the cache (2026-06-20)
-- `--full-finetune` (Unsloth `full_finetuning=True`) crashes Whisper at step 0:
+### ERROR + FIX — LABEL SMOOTHING breaks Unsloth+Whisper (2026-06-20)
+- `--label-smoothing 0.1` crashes at step 0:
   `ValueError: cannot specify both decoder_input_ids and decoder_inputs_embeds`
-  (in unsloth_compiled_cache/unsloth_compiled_module_whisper.py).
-- **Worse**: the crash leaves a CORRUPTED `unsloth_compiled_cache/` → the next LoRA run
-  inherits the broken compiled module and crashes identically at step 0 (broad-pretrain
-  hit this). **Fix**: `rm -rf unsloth_compiled_cache` before relaunching; **never use
-  `--full-finetune` with Unsloth+Whisper**. (Full-FT would need a non-Unsloth HF path.)
+  (unsloth_compiled_module_whisper.py, WhisperDecoder_forward). HF's label-smoother path
+  pops `labels` and feeds the model differently, conflicting with Unsloth's patched
+  Whisper forward.
+- **Misdiagnosed twice first**: blamed full-FT, then a "poisoned cache". The real cause is
+  **label smoothing** — proof: p05 (LoRA, NO label smoothing) trained fine; both full-FT
+  AND broad-pretrain used `--label-smoothing 0.1` and crashed identically; deleting the
+  cache did NOT fix broad (it recrashed). Removing `--label-smoothing` fixed it.
+- **Fix**: don't pass `--label-smoothing` with Unsloth+Whisper (removed from broad/largev3
+  launchers). For anti-repetition, use RL reward shaping instead.
+- full_finetuning=True is separately untested without label smoothing and deprioritized
+  (RL pivot). The compiled cache lives in `unsloth_compiled_cache/`; `rm -rf` it if a run
+  leaves it in a bad state.
 
 ### ERROR + FIX — 5h GPU idle from pgrep self-match (2026-06-20)
 - **What happened**: preview-0.5 finished cleanly at 10:03 but the chain watcher never
