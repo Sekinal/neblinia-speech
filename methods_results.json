@@ -1,0 +1,9 @@
+[
+  {
+    "method": "lora",
+    "lr": 0.0001,
+    "dev_wer": 84.15,
+    "trainable_params": 6553600,
+    "peak_vram_gb": 28.62
+  }
+]

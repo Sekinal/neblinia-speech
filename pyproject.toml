@@ -1,0 +1,21 @@
+[project]
+name = "mexicospeech-training"
+version = "0.1.0"
+description = "Fine-tuning ASR models (Whisper + Unsloth LoRA) on Mexican Indigenous speech"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    # Unsloth + its stack pin specific torch/transformers; install in an isolated env.
+    "unsloth",
+    "unsloth_zoo",
+    "torch>=2.11",         # Unsloth compiled kernels need >=2.11
+    "transformers",
+    "datasets<3",
+    "jiwer",
+    "soundfile",
+    "librosa",
+    "huggingface-hub",
+]
+
+[tool.uv]
+package = false

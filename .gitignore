@@ -1,0 +1,21 @@
+# secrets — NEVER commit
+*.env
+.env*
+**/secrets*
+*token*
+*password*
+# heavy/derived
+.venv*/
+**/__pycache__/
+*.pyc
+models/
+data/
+*.log
+wandb/
+unsloth_compiled_cache/
+*.wav
+*.mp3
+*.safetensors
+*.bin
+# the conversation transcript contains pasted secrets
+claude_logs/
