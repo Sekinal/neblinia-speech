@@ -153,6 +153,8 @@ def main():
     ap.add_argument("--warmup", type=float, default=0.05, help="warmup_ratio")
     ap.add_argument("--patience", type=int, default=0,
                     help="early-stopping patience in eval steps (0 = off)")
+    ap.add_argument("--base", default=BASE,
+                    help="base model id (e.g. openai/whisper-large-v3 for the 32-layer decoder)")
     ap.add_argument("--outdir", default=str(OUTDIR))
     args = ap.parse_args()
     outdir = Path(args.outdir)
@@ -169,7 +171,7 @@ def main():
     from unsloth import FastModel
 
     model, processor = FastModel.from_pretrained(
-        BASE, auto_model=AutoModelForSpeechSeq2Seq, whisper_language="Spanish",
+        args.base, auto_model=AutoModelForSpeechSeq2Seq, whisper_language="Spanish",
         whisper_task="transcribe", load_in_4bit=False, dtype=None,
         full_finetuning=args.full_finetune)
     if not args.full_finetune:
