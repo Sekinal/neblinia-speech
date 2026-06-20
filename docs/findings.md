@@ -47,6 +47,20 @@ Indigenous languages. Current best **preview-0.3 (GSPO) = 66.0 WER / 28.3 CER**.
   but **CC BY-NC-SA** → non-commercial; flag before any release that bundles them.
 - **CIEMPIESS Mexican Spanish (CC BY-SA, ~100 h)**: cheap WER win for Spanish test clips.
 
+### RESULT — data scale helps autoregression, but RL is decisive (2026-06-20)
+Autoregressive raw-greedy dev triage (eval_dev_fast, 460 clips), the ONLY trustworthy metric:
+| model | data | recipe | WER | CER | loop% |
+|---|---|---|---|---|---|
+| preview-0.3 | 22.5k | q,v SFT **+ GSPO** | **89** | 50 | **11.3** |
+| broad ck1800 | **97k** | all-mod SFT, 0.9ep | 108 | 60 | 15.9 |
+| p05 | 22.5k | all-mod SFT, ~4ep | 139 | 87 | 26.3 |
+- **3× data cut looping 26%→16%, WER 139→108** — data scale clearly helps free-running gen.
+- But broad-SFT (108) still loses to preview-0.3 (89) because **preview-0.3 had RL**.
+  → **data + RL together** is the play. Stopped broad at 0.9ep (more epochs risk overfit-
+  looping like p05) and launched **preview-0.9-broadgspo = GSPO on the broad-ck1800 base**
+  (group8, 400 steps, lr1e-6, reward w-len0.4/w-rep0.6, autoregressive dev-CER val every 25).
+- best langs already strong even pre-RL: ztp CER20/loop5%, vmj/zpv CER~29/loop0%.
+
 ### PIVOT — teacher-forced SFT amplifies looping; RL is the real lever (2026-06-20)
 The biggest finding of the campaign. Hard evidence:
 - **preview-0.5 (all-mod LoRA)**: teacher-forced eval_wer *improved* monotonically
