@@ -23,6 +23,16 @@ Ran an error audit on preview-0.9 (best model) over 200 dev clips. THE pivotal f
   langs (Mixtec/Zapotec had zero transfer data -> WER 86-106), (3) orthographic normalization of
   train+eval. Architecture (byte/ByT5/from-scratch/CTC) is a spent lever. Pivot to DATA + METRICS.
 
+### GSPO on large-v3 = NULL result; large-v3 SFT is the flagship (2026-06-21)
+Ran GSPO RL on the large-v3 SFT base (group4/clips4, same reward as preview-0.9). Internal
+greedy dev CER nudged 0.573->0.551 (step 75), BUT this was a length-capped-decode artifact.
+The full fair eval CRAWLED 2h14m (vs ~20min for SFT) and the fast audit shows insertions UP
+to 25% (preview-0.9 was 23%) -> the RL pushed the model to OVER-GENERATE on hard clips, which
+faster-whisper's temp-fallback then chases. Net: no WER gain, worse inference speed + quality.
+**Flagship = large-v3 SFT (WER 54.4 / CER 24.2), no RL.** GSPO helped turbo (66->59) because
+the turbo SFT was weak; on the already-strong large-v3 SFT there is little headroom and RL just
+inflates length. Lesson: validate RL with the SAME (uncapped) decode as the final eval.
+
 ### CAPACITY LEVER WORKS — large-v3 (32-layer decoder) is a NEW BEST (2026-06-21)
 Trained whisper-large-v3 (full 32-layer decoder, vs turbo's 4-layer) LoRA SFT on the broad
 manifest (97k), same recipe as preview-0.8. Fair faster-whisper eval (auto, n=5925):
