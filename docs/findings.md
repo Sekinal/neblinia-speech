@@ -47,6 +47,25 @@ Indigenous languages. Current best **preview-0.3 (GSPO) = 66.0 WER / 28.3 CER**.
   but **CC BY-NC-SA** → non-commercial; flag before any release that bundles them.
 - **CIEMPIESS Mexican Spanish (CC BY-SA, ~100 h)**: cheap WER win for Spanish test clips.
 
+### ByT5 speech-LLM + CODEX ADVERSARIAL REVIEW pivot (2026-06-21)
+- **ByT5 speech-LLM** (Whisper enc frozen -> proj -> ByT5 byte-native decoder, 940M total /
+  85M trainable): learns the mapping BETTER than byte-Whisper (loss 16.8->1.1, lower) and
+  transcribes onsets correctly, BUT autoregressive byte decoding **loops severely**
+  ("lunes miernes miernes miernes", "ri ri ri ri..."). Dev WER 283->179->158 (improving but
+  rambler/loop-inflated). Same exposure-bias looping as every AED here, worse for byte-level
+  (long sequences). Killed as a side experiment per the review's kill criterion.
+- **Codex adversarial review** (harsh critic) crystallized the strategy and corrected course:
+  1. **#1 missing thing: an ERROR AUDIT.** If WER is dominated by orthographic noise
+     (diacritics, spacing, casing, spelling variants), architecture work is WASTED.
+  2. **Lever ranking**: data quality/normalization > more labeled data > pseudo-labeling >
+     strong Whisper SFT > **CTC/RNN-T auxiliary on the Whisper encoder** (the one arch change
+     worth trying, adds monotonic pressure -> kills looping) > rescoring > GSPO/MWER (only
+     after sane) > **new architecture from scratch (LOWEST value)**.
+  3. **Byte/from-scratch/ByT5 are low-value.** The winning family is Whisper SFT + RL (our 59).
+  4. The looping across ALL our AED experiments is the structural argument for **monotonic
+     alignment** (CTC+attention hybrid / transducer), not a bigger/byte decoder.
+- Action: error audit first (does architecture even matter?), then Whisper+CTC-auxiliary.
+
 ### ARCHITECTURE STUDY — full scoreboard + lessons (2026-06-21)
 We tested several architectures on the same data/benchmark. Scoreboard:
 | approach | base | output | WER | note |

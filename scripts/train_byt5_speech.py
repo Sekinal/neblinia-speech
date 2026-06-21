@@ -54,11 +54,13 @@ class SpeechByT5(nn.Module):
         return self.byt5(encoder_outputs=BaseModelOutput(last_hidden_state=mem), labels=labels).loss
 
     @torch.no_grad()
-    def generate(self, feats, max_new=400):
+    def generate(self, feats, max_new=256):
+        # NOTE: no_repeat_ngram in HF generate is a slow CPU op that stalls eval over many
+        # clips; rely on a bounded max_new instead (a few ramblers, but eval stays fast).
         from transformers.modeling_outputs import BaseModelOutput
         mem = self.encode(feats)
         return self.byt5.generate(encoder_outputs=BaseModelOutput(last_hidden_state=mem),
-                                  max_new_tokens=max_new, num_beams=1, no_repeat_ngram_size=4)
+                                  max_new_tokens=max_new, num_beams=1)
 
 
 def main():
@@ -112,7 +114,11 @@ def main():
 
     loader = DataLoader(DS(tr), batch_size=args.batch, shuffle=True, num_workers=8,
                         collate_fn=collate, drop_last=True, persistent_workers=True, prefetch_factor=4)
-    dev_loader = DataLoader(DS(dv), batch_size=args.batch, shuffle=False, num_workers=8, collate_fn=collate)
+    # precompute dev features ONCE (a second live DataLoader deadlocks the persistent train
+    # workers and stalls the GPU). Eval iterates this cache, no DataLoader.
+    print("caching dev features...", flush=True)
+    dev_cache = [(fe(load_audio(r["audio"]), sampling_rate=16000, return_tensors="pt").input_features[0],
+                  tok(r["text"], return_tensors="pt").input_ids[0]) for r in dv]
 
     if args.smoke:
         feats, labels = next(iter(loader))
@@ -135,14 +141,14 @@ def main():
     def dev_eval():
         model.eval()
         refs, hyps = [], []
-        for feats, labels in dev_loader:
-            feats = feats.to(DEVICE)
+        for i in range(0, len(dev_cache), args.batch):
+            chunk = dev_cache[i:i + args.batch]
+            feats = torch.stack([c[0] for c in chunk]).to(DEVICE)
             with torch.autocast("cuda", dtype=torch.bfloat16):
                 gen = model.generate(feats)
-            for g, lab in zip(gen, labels):
+            for g, c in zip(gen, chunk):
                 hyps.append(tok.decode(g, skip_special_tokens=True).lower().strip())
-                ids = [int(t) for t in lab if int(t) >= 0]
-                refs.append(tok.decode(ids, skip_special_tokens=True).lower().strip())
+                refs.append(tok.decode(c[1], skip_special_tokens=True).lower().strip())
         model.train()
         pairs = [(r, h) for r, h in zip(refs, hyps) if r]
         rr, hh = zip(*pairs)
