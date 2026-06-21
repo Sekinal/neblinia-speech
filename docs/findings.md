@@ -23,6 +23,17 @@ Ran an error audit on preview-0.9 (best model) over 200 dev clips. THE pivotal f
   langs (Mixtec/Zapotec had zero transfer data -> WER 86-106), (3) orthographic normalization of
   train+eval. Architecture (byte/ByT5/from-scratch/CTC) is a spent lever. Pivot to DATA + METRICS.
 
+### SLR89 IS UNUSABLE — incompatible orthography (2026-06-21)
+Pulled + processed OpenSLR SLR89 (Yoloxochitl Mixtec, 86GB, 426 ELAN .eaf, ~100h). Built a
+working eaf->manifest pipeline (process_slr89.py, picks the SURFACE orthography tier, time-aligned
+segments). BUT the transcriptions use NUMERIC TONE notation: "Ki1bi4 na4tu2 yo4o4 na1 ko4ndo3..."
+(every syllable carries a tone digit 1-4). This is a phonological RESEARCH orthography, totally
+incompatible with our targets' practical orthography ("luñ mart miercu jueb..."). Adding it would
+teach the AED decoder the WRONG output convention and tank WER. Plus it is a different Mixtec
+variety than our mig/xti. SKIPPED + freed disk. **Lesson: even the "available" open Mixtec data is
+orthographically incompatible -> the model (CER 26.5) is at the genuine open-data ceiling. Remaining
+genuine lever: large-v3 capacity + CER as the honest metric.**
+
 ### DATA AVAILABILITY AUDIT — open data is largely TAPPED (2026-06-21)
 Research agent crawled OpenSLR, HuggingFace, Zenodo, AILLA, ELAR, Comunidad Elotl. Verdict:
 - **Actionable OPEN sources**: OpenSLR **SLR89** (Yoloxochitl Mixtec, CC BY-NC-SA), **SLR92**
