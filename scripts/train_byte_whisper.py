@@ -22,6 +22,7 @@ DEV = ROOT / "data" / "train" / "manifest_indomain_dev.jsonl"
 BASE = "openai/whisper-large-v3-turbo"
 PAD, BOS, EOS = 256, 257, 258
 VOCAB = 259
+MAXPOS = 1024          # extend Whisper's 448 decoder positions: byte labels run longer than BPE
 DEVICE = "cuda"
 
 
@@ -61,7 +62,7 @@ def collate(batch):
 
 
 @torch.no_grad()
-def greedy(model, feats, max_len=200):
+def greedy(model, feats, max_len=600):
     enc = model.model.encoder(feats).last_hidden_state
     B = feats.size(0)
     ids = torch.full((B, 1), BOS, device=feats.device, dtype=torch.long)
@@ -105,14 +106,28 @@ def main():
     dv = [json.loads(l) for l in open(DEV, encoding="utf-8")][:args.dev_clips]
     if args.max_samples:
         tr = tr[:args.max_samples]
+    nbyte = lambda r: len(r["text"].encode("utf-8")) + 1
+    tr = [r for r in tr if nbyte(r) <= MAXPOS]
+    dv = [r for r in dv if nbyte(r) <= MAXPOS]
     print(f"train {len(tr)} | dev {len(dv)}", flush=True)
 
+    from transformers.models.whisper.modeling_whisper import WhisperPositionalEmbedding
     fe = WhisperFeatureExtractor.from_pretrained(BASE)
     model = WhisperForConditionalGeneration.from_pretrained(BASE, dtype=torch.float32)
     d = model.config.d_model
     # swap decoder token embeddings + output head to the byte vocab (re-init)
     model.model.decoder.embed_tokens = nn.Embedding(VOCAB, d, padding_idx=PAD)
     model.proj_out = nn.Linear(d, VOCAB, bias=False)
+    # extend decoder positional embeddings (byte sequences exceed Whisper's 448 cap)
+    op = model.model.decoder.embed_positions.weight.data
+    npos = WhisperPositionalEmbedding(MAXPOS, d)
+    npos.weight.data[:op.size(0)] = op
+    npos.weight.data[op.size(0):] = op[-1].unsqueeze(0).repeat(MAXPOS - op.size(0), 1)
+    model.model.decoder.embed_positions = npos
+    model.config.max_target_positions = MAXPOS
+    model.model.decoder.max_target_positions = MAXPOS     # decoder caches this at init (was 448)
+    model.max_target_positions = MAXPOS                   # the forward's label-length check reads THIS
+    model.generation_config.max_length = MAXPOS
     model.config.vocab_size = VOCAB
     model.config.pad_token_id = PAD
     model.config.bos_token_id = BOS
