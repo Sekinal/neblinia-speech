@@ -62,14 +62,22 @@ def collate(batch):
 
 
 @torch.no_grad()
-def greedy(model, feats, max_len=600):
+def greedy(model, feats, max_len=600, no_repeat=4):
     enc = model.model.encoder(feats).last_hidden_state
     B = feats.size(0)
     ids = torch.full((B, 1), BOS, device=feats.device, dtype=torch.long)
     done = torch.zeros(B, dtype=torch.bool, device=feats.device)
     for _ in range(max_len):
         h = model.model.decoder(input_ids=ids, encoder_hidden_states=enc).last_hidden_state
-        nxt = model.proj_out(h[:, -1]).argmax(-1)
+        logits = model.proj_out(h[:, -1])
+        if no_repeat and ids.size(1) >= no_repeat:        # block repeating n-grams (loop guard)
+            seqs = ids.tolist()
+            for b in range(B):
+                pre = tuple(seqs[b][-(no_repeat - 1):])
+                for i in range(len(seqs[b]) - no_repeat + 1):
+                    if tuple(seqs[b][i:i + no_repeat - 1]) == pre:
+                        logits[b, seqs[b][i + no_repeat - 1]] = -1e9
+        nxt = logits.argmax(-1)
         ids = torch.cat([ids, nxt[:, None]], 1)
         done |= nxt == EOS
         if done.all():
@@ -118,11 +126,16 @@ def main():
     # swap decoder token embeddings + output head to the byte vocab (re-init)
     model.model.decoder.embed_tokens = nn.Embedding(VOCAB, d, padding_idx=PAD)
     model.proj_out = nn.Linear(d, VOCAB, bias=False)
-    # extend decoder positional embeddings (byte sequences exceed Whisper's 448 cap)
-    op = model.model.decoder.embed_positions.weight.data
+    # extend decoder positional embeddings (byte sequences exceed Whisper's 448 cap).
+    # INTERPOLATE the learned positions to MAXPOS so every position is distinct + smooth
+    # (copying the last position makes all extra positions identical -> the decoder loses
+    # track of position on long sequences and rambles).
+    op = model.model.decoder.embed_positions.weight.data            # [448, d]
     npos = WhisperPositionalEmbedding(MAXPOS, d)
-    npos.weight.data[:op.size(0)] = op
-    npos.weight.data[op.size(0):] = op[-1].unsqueeze(0).repeat(MAXPOS - op.size(0), 1)
+    interp = torch.nn.functional.interpolate(
+        op.t().unsqueeze(0).float(), size=MAXPOS, mode="linear", align_corners=True
+    ).squeeze(0).t().contiguous()                                  # [MAXPOS, d]
+    npos.weight.data.copy_(interp.to(op.dtype))
     model.model.decoder.embed_positions = npos
     model.config.max_target_positions = MAXPOS
     model.model.decoder.max_target_positions = MAXPOS     # decoder caches this at init (was 448)
