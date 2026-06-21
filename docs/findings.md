@@ -23,6 +23,17 @@ Ran an error audit on preview-0.9 (best model) over 200 dev clips. THE pivotal f
   langs (Mixtec/Zapotec had zero transfer data -> WER 86-106), (3) orthographic normalization of
   train+eval. Architecture (byte/ByT5/from-scratch/CTC) is a spent lever. Pivot to DATA + METRICS.
 
+### CAPACITY LEVER WORKS — large-v3 (32-layer decoder) is a NEW BEST (2026-06-21)
+Trained whisper-large-v3 (full 32-layer decoder, vs turbo's 4-layer) LoRA SFT on the broad
+manifest (97k), same recipe as preview-0.8. Fair faster-whisper eval (auto, n=5925):
+- **large-v3 SFT only: WER 54.39 / CER 24.19**
+- vs preview-0.9 (turbo SFT + GSPO): WER 58.99 / CER 26.45
+**large-v3 SFT BEATS turbo SFT+GSPO before any RL** (-4.6 WER, -2.3 CER). The turbo 4-layer
+decoder WAS a capacity bottleneck for 23 languages. This is the one architecture lever the
+error audit did not rule out, and it delivered the biggest single jump in a while. Next: GSPO
+RL on top of large-v3 (should push further, as it did for turbo). per-lang: spa 14.3, zor 35.8
+(best indig), Zapotec zts 106.9 still worst (no open data). New best -> preview-1.0 candidate.
+
 ### SLR89 IS UNUSABLE — incompatible orthography (2026-06-21)
 Pulled + processed OpenSLR SLR89 (Yoloxochitl Mixtec, 86GB, 426 ELAN .eaf, ~100h). Built a
 working eaf->manifest pipeline (process_slr89.py, picks the SURFACE orthography tier, time-aligned
