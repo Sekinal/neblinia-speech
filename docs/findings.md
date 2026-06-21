@@ -47,6 +47,22 @@ Indigenous languages. Current best **preview-0.3 (GSPO) = 66.0 WER / 28.3 CER**.
   but **CC BY-NC-SA** → non-commercial; flag before any release that bundles them.
 - **CIEMPIESS Mexican Spanish (CC BY-SA, ~100 h)**: cheap WER win for Spanish test clips.
 
+### ARCHITECTURE COMPARISON — autoregressive seq2seq >> CTC (2026-06-21)
+Direct head-to-head on the same MEXA test, same normalization:
+| model | architecture | WER | CER |
+|---|---|---|---|
+| Whisper-turbo + GSPO (preview-0.9) | autoregressive encoder-decoder | **58.99** | **26.45** |
+| Parakeet-CTC 0.6b (in-domain) | non-autoregressive CTC | 90.25 | 44.99 |
+| NeblinIA-mini (from scratch, ~11M) | autoregressive char AED | (running) | |
+- **Whisper wins decisively.** Parakeet-CTC scores 88.5 WER even on Spanish (Whisper 18.8),
+  so it is not a hard-language problem: CTC's frame-independence + no language model produces
+  roughly-right chars (CER 45) but mostly-wrong words (WER 90). The autoregressive decoder's
+  word-level dependency modeling is essential for these polysynthetic languages.
+- Caveats for Parakeet: trained in-domain only (vs Whisper's broad+RL) and greedy with no
+  KenLM. Both would help its WER but not close a ~30-pt gap. TDT/RNNT (internal LM) might do
+  better but is more complex. NeblinIA-mini (small autoregressive, from scratch) tests whether
+  autoregressive beats CTC even WITHOUT pretraining.
+
 ### NEGATIVE — Parakeet-CTC head-to-head blocked by an HF backward bug (2026-06-21)
 Attempted a direct Parakeet (FastConformer) vs Whisper comparison, fully in HF/safetensors
 (no NeMo, per requirement). Got far but hit a wall. What was solved:
