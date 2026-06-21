@@ -23,6 +23,21 @@ Ran an error audit on preview-0.9 (best model) over 200 dev clips. THE pivotal f
   langs (Mixtec/Zapotec had zero transfer data -> WER 86-106), (3) orthographic normalization of
   train+eval. Architecture (byte/ByT5/from-scratch/CTC) is a spent lever. Pivot to DATA + METRICS.
 
+### DATA AVAILABILITY AUDIT — open data is largely TAPPED (2026-06-21)
+Research agent crawled OpenSLR, HuggingFace, Zenodo, AILLA, ELAR, Comunidad Elotl. Verdict:
+- **Actionable OPEN sources**: OpenSLR **SLR89** (Yoloxochitl Mixtec, CC BY-NC-SA), **SLR92**
+  (Highland Puebla Nahuatl, ~190h, Amith), **SLR107**, Common Voice **meh** (Mixtec). These are
+  cross-VARIETY (e.g. Yoloxochitl Mixtec != our mig/xti), so transfer is partial + they add their
+  own orthographic conventions. NC license = research-only (fine for now, flag for commercial).
+- **NO open audio exists** for Zapotec (our WORST lang, zts WER 106), Cuicatec (cux), Amuzgo
+  (amu), Mazatec, Mixe. AILLA/ELAR have collections but they are permission-gated, NonCommercial,
+  no bulk download -> not drop-in; would require emailing depositors (Moore, Beam de Azcona).
+- **IMPLICATION**: the failing languages are genuinely data-constrained with no open shortcut.
+  Data lever helps Mixtec/Nahuatl marginally (cross-variety) but cannot fix Zapotec. Combined with
+  the orthographic-noise finding, the model (CER 26.5 test) is near the achievable open-data
+  ceiling. Honest gains left: pull SLR89/92 for Mixtec/Nahuatl acoustics, CER as fair metric,
+  large-v3 capacity. WER 20 is likely unreachable on open data + inconsistent refs.
+
 ## 2026-06-20 — Campaign kickoff: drive WER 66 → ≤20
 
 ### State of play
