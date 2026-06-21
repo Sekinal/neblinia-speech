@@ -62,10 +62,16 @@ Attempted a direct Parakeet (FastConformer) vs Whisper comparison, fully in HF/s
   crash), sequence length (dummy sweep OK at all lengths to 28s), CTC alignment (filtered
   clips where label>frames, still crashes), and padding (length-grouped sampler pushed the
   crash from step 16 to 40 but did not fix it). It only survives the tiny 12-step debug.
-- **Verdict**: the HF `ParakeetForCTC` integration (added 2025-09) has a backward CUDA bug
-  on real training that needs upstream-level debugging. Not viable now; abandoned in favor
-  of the data-scaling work that directly serves the WER goal. Scripts kept: train_parakeet.py,
-  eval_parakeet.py, debug_parakeet.py, sweep_len.py.
+- **SOLVED (2026-06-21)**: the crash was OUR bug, a padding-convention mismatch. Parakeet
+  masks labels by `labels != config.pad_token_id` (NOT the usual -100). Our collator padded
+  with -100, so -100 (an out-of-range token id) leaked into the CTC targets -> CUDA illegal
+  memory access in the loss backward. This explained every symptom: intermittent,
+  data-dependent (more padding = more leaked -100s), in the CTC backward, and why the
+  12-step debug survived (minimal padding). **Fix: pad labels with `blank` (=pad_token_id),
+  not -100.** Frozen-encoder isolation + the Wav2Vec2 CTC issue (#14861) localized it to the
+  CTC loss; reading the forward found the mask. Now trains clean past step 150+.
+- Also needed torch >= 2.11 (cpp extensions) and a light CTC length filter (frames >=
+  target+8, keeps ~97%). Parakeet-CTC head-to-head vs Whisper now running.
 
 ### ✅ CONSOLIDATION — ship preview-0.9 as NeblinIA-Speech preview-0.1 (2026-06-20)
 Decision (user): consolidate at the best result rather than chase uncertain incremental gains

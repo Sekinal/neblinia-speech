@@ -53,6 +53,7 @@ def load_audio(path):
 class CTCCollator:
     fe: object
     sp: object
+    blank: int
 
     def __call__(self, batch):
         feats, labels = [], []
@@ -64,7 +65,9 @@ class CTCCollator:
             labels.append(ids if ids else [0])
         inp = self.fe.pad(feats, return_tensors="pt")
         maxlen = max(len(l) for l in labels)
-        lab = torch.full((len(labels), maxlen), -100, dtype=torch.long)
+        # Parakeet masks labels by `labels != config.pad_token_id` (= blank), NOT by -100.
+        # So pad with `blank`; padding with -100 leaks -100 into the CTC targets -> OOB crash.
+        lab = torch.full((len(labels), maxlen), self.blank, dtype=torch.long)
         for i, l in enumerate(labels):
             lab[i, :len(l)] = torch.tensor(l, dtype=torch.long)
         inp["labels"] = lab
@@ -84,6 +87,7 @@ def main():
     ap.add_argument("--train-manifest", default=None)
     ap.add_argument("--max-secs", type=float, default=14.0, help="drop clips longer than this (0=off)")
     ap.add_argument("--min-secs", type=float, default=0.4)
+    ap.add_argument("--freeze-encoder", action="store_true", help="train only the CTC head (bug-isolation / linear probe)")
     ap.add_argument("--outdir", default=str(ROOT / "models" / "neblinia-parakeet-ctc"))
     ap.add_argument("--smoke", action="store_true")
     args = ap.parse_args()
@@ -107,16 +111,23 @@ def main():
     # subsampled frame count: the alignment lattice goes out of bounds. Drop those clips.
     # The encoder subsamples ~8x (10ms hop -> ~12.5 frames/sec). Require frames > labels+margin.
     import soundfile as sf
+    def sub_len(L):                            # FastConformer dw_striding 8x subsampling
+        for _ in range(3):
+            L = (L - 1) // 2 + 1
+        return L
     def ok(r):
         try:
             info = sf.info(r["audio"])
             dur = info.frames / info.samplerate
             if not (args.min_secs <= dur <= args.max_secs):
                 return False
-            sub = int(dur * 100) // 8          # subsampled frames estimate
-            if sub <= len(_sp.encode(r["text"], out_type=int)) + 4:
+            mel = int(dur * 100)               # ~100 fps mel frames
+            sub = sub_len(mel)                  # actual subsampled (encoder output) frames
+            # CTC backward OOBs (CUDA illegal access) unless input >> target. A target with
+            # adjacent repeats needs up to 2x its length, so require sub >= 2*target + margin.
+            if sub < len(_sp.encode(r["text"], out_type=int)) + 8:
                 return False
-            r["length"] = int(dur * 100)       # mel frames, for group_by_length batching
+            r["length"] = mel
             return True
         except Exception:
             return False
@@ -140,10 +151,15 @@ def main():
     model.config.pad_token_id = blank
     # NOTE: requires torch >= 2.11 so Parakeet's cuda cpp extensions load; under torch 2.10
     # the fallback backward crashes (CUDA illegal access) and NaNs. Run with .venv-parakeet.
+    if args.freeze_encoder:
+        for p in model.encoder.parameters():
+            p.requires_grad_(False)
+        n = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        print(f"froze encoder; trainable params: {n:,}", flush=True)
     model.to("cuda")
     print(f"swapped ctc_head -> Conv1d({hidden}, {vocab_size})", flush=True)
 
-    collator = CTCCollator(fe, sp)
+    collator = CTCCollator(fe, sp, blank)
     mk = lambda rs: Dataset.from_list([{"audio": r["audio"], "text": r["text"],
                                         "length": r["length"]} for r in rs])
     train_ds, dev_ds = mk(train_rows), mk(dev_rows)
@@ -172,7 +188,7 @@ def main():
 
     def compute_metrics(pred):
         hyps = [ctc_decode(p) for p in pred.predictions]
-        refs = [sp.decode([int(i) for i in lab if int(i) >= 0]) for lab in pred.label_ids]
+        refs = [sp.decode([int(i) for i in lab if 0 <= int(i) < blank]) for lab in pred.label_ids]
         pairs = [(r, h) for r, h in zip(refs, hyps) if r.strip()]
         if not pairs:
             return {"wer": 100.0}
