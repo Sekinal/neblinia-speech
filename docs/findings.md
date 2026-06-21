@@ -47,6 +47,46 @@ Indigenous languages. Current best **preview-0.3 (GSPO) = 66.0 WER / 28.3 CER**.
   but **CC BY-NC-SA** → non-commercial; flag before any release that bundles them.
 - **CIEMPIESS Mexican Spanish (CC BY-SA, ~100 h)**: cheap WER win for Spanish test clips.
 
+### ARCHITECTURE STUDY — full scoreboard + lessons (2026-06-21)
+We tested several architectures on the same data/benchmark. Scoreboard:
+| approach | base | output | WER | note |
+|---|---|---|---|---|
+| Whisper-turbo + GSPO (preview-0.9) | pretrained AED | BPE | **59** | the winner, shipped |
+| Parakeet-CTC 0.6b | pretrained FastConformer | CTC | 90 | CTC frame-independence weak here |
+| NeblinIA-mini (from scratch) | random init, ~11M | char | 108 (dev) | the from-scratch floor |
+| byte-Whisper (turbo, vocab swap) | pretrained AED | byte | ~150 (dev) | negative transfer |
+(WER columns mix fair-test for pretrained and dev for the experiments; treat the experiment
+rows as relative, not directly vs the 59 test number.)
+
+Lessons that generalize:
+1. **Autoregressive seq2seq >> CTC** for these polysynthetic langs (Whisper 59 vs Parakeet
+   90). CTC's per-frame independence + no LM can't model long agglutinative words; even on
+   Spanish, Parakeet-CTC was 88.5 WER. The autoregressive decoder IS the language model.
+2. **Pretraining is the load-bearing ingredient.** NeblinIA-mini from scratch (60h) plateaus
+   at ~108 dev — genuinely learning (beats zero-shot hallucination >>100) but nowhere near
+   pretrained Whisper's 59. The ceiling is a *data/pretraining* gap, not a learnability gap:
+   even 60h from scratch extracts real signal (CER improving 100->74).
+3. **Byte-level needs a byte-NATIVE base.** byte-Whisper (swap Whisper's BPE vocab for 256
+   UTF-8 bytes, retrain decoder embed/head) is NEGATIVE TRANSFER: Whisper's decoder learned
+   BPE-token transitions, and forcing byte generation disrupts it (unstable, ~150 dev,
+   oscillating). It DOES transcribe (diagnostic: "lunes martes miercoles..." nearly correct,
+   uses audio) but worse than from-scratch. Byte-level is right for a foundational
+   any-orthography model, but the decoder must be byte-fluent from pretraining (-> ByT5).
+4. **Frontier-LLM tricks (GLM-5) mostly DON'T transfer.** DSA sparse attention, MLA, async
+   agent RL solve long-context/agentic/scale problems; our sequences are short. The one
+   transferable trick is **Muon** (optimizer quality helps at any scale). MoE and byte-level
+   are foundational-SCALE plays (capacity/robustness across many languages), premature on
+   tiny data where MoE would overfit — right for scaling NeblinIA to 100s of MX langs, not
+   for squeezing these 23.
+5. **gotchas this round**: byte labels exceed Whisper's 448 decoder positions (extend +
+   INTERPOLATE positions, not copy-last which makes them identical -> rambling); Whisper's
+   label-length check reads `model.max_target_positions` (set on config+decoder+model);
+   Parakeet CTC backward CUDA-crash = labels padded with -100 leaking into targets (pad with
+   blank=pad_token_id); torch>=2.11 for Parakeet cpp extensions. Scripts: train_scratch.py,
+   train_byte_whisper.py, train_parakeet.py, sweep_len.py, diag_byte.py.
+- Next (foundational track): **speech encoder -> ByT5 byte-native decoder** = the principled
+  tokenizer-free speech-LLM.
+
 ### ARCHITECTURE COMPARISON — autoregressive seq2seq >> CTC (2026-06-21)
 Direct head-to-head on the same MEXA test, same normalization:
 | model | architecture | WER | CER |
