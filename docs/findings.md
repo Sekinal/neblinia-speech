@@ -6,6 +6,23 @@ Indigenous languages. Current best **preview-0.3 (GSPO) = 66.0 WER / 28.3 CER**.
 
 ---
 
+### ERROR AUDIT — the WER is orthographic noise, architecture is EXHAUSTED (2026-06-21)
+Ran an error audit on preview-0.9 (best model) over 200 dev clips. THE pivotal finding:
+- **WER 86.1 but CER 40.4** on the same outputs. The model gets ~60% of characters right but
+  rarely nails a whole word, because nearly every word differs by 1-2 chars from the reference.
+- Error mix: **sub 68%, ins 23%, del 8%.** Substitutions dominate, and they are orthographic:
+  top pairs are yoo->yo (vowel length), tone marks, tzai->zai (tz/ts/z), gu->hu, iin->in,
+  spacing (kua tu <-> kuatu). Example: ref "...sabado y domingo" vs hyp "...sábado y domingo"
+  = ONE accent = a whole "word error".
+- Normalization impact: diacritic-strip only drops WER 86->84 (variation is richer than
+  diacritics); no-space doesn't move CER. Pervasive phoneme-spelling convention, not one class.
+- **IMPLICATION (confirms codex): the model is acoustically FINE (CER 40); WER is inflated by
+  reference orthographic inconsistency these unstandardized languages have no canonical spelling.
+  No decoder/architecture change fixes this.** WER 20 may be partly UNREACHABLE while refs are
+  inconsistent. Honest levers in order: (1) CER as co-primary metric, (2) MORE DATA for failing
+  langs (Mixtec/Zapotec had zero transfer data -> WER 86-106), (3) orthographic normalization of
+  train+eval. Architecture (byte/ByT5/from-scratch/CTC) is a spent lever. Pivot to DATA + METRICS.
+
 ## 2026-06-20 — Campaign kickoff: drive WER 66 → ≤20
 
 ### State of play
