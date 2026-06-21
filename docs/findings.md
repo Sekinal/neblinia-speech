@@ -47,6 +47,26 @@ Indigenous languages. Current best **preview-0.3 (GSPO) = 66.0 WER / 28.3 CER**.
   but **CC BY-NC-SA** → non-commercial; flag before any release that bundles them.
 - **CIEMPIESS Mexican Spanish (CC BY-SA, ~100 h)**: cheap WER win for Spanish test clips.
 
+### NEGATIVE — Parakeet-CTC head-to-head blocked by an HF backward bug (2026-06-21)
+Attempted a direct Parakeet (FastConformer) vs Whisper comparison, fully in HF/safetensors
+(no NeMo, per requirement). Got far but hit a wall. What was solved:
+- **Tokenizer**: Parakeet's English subword tokenizer maps every diacritic/glottal stop to
+  `<unk>` (cannot represent these orthographies). Fixed with a SentencePiece subword vocab
+  (512 BPE, char-coverage 1.0) trained on our text + a fresh CTC head on the pretrained
+  encoder. (Char-level is infeasible: 8x subsampling = ~12.5 frames/sec < chars/sec.)
+- **torch version**: under torch 2.10 the Parakeet cuda cpp-extensions are skipped and the
+  fallback backward crashes immediately. Built `.venv-parakeet` with **torch 2.11.0+cu128**;
+  the short-clip backward then runs clean (no crash, no NaN).
+- **THE WALL**: on real full-data training the backward still throws `CUDA error: illegal
+  memory access` within ~16-40 steps. Systematically ruled out: precision (fp32 & bf16 both
+  crash), sequence length (dummy sweep OK at all lengths to 28s), CTC alignment (filtered
+  clips where label>frames, still crashes), and padding (length-grouped sampler pushed the
+  crash from step 16 to 40 but did not fix it). It only survives the tiny 12-step debug.
+- **Verdict**: the HF `ParakeetForCTC` integration (added 2025-09) has a backward CUDA bug
+  on real training that needs upstream-level debugging. Not viable now; abandoned in favor
+  of the data-scaling work that directly serves the WER goal. Scripts kept: train_parakeet.py,
+  eval_parakeet.py, debug_parakeet.py, sweep_len.py.
+
 ### ✅ CONSOLIDATION — ship preview-0.9 as NeblinIA-Speech preview-0.1 (2026-06-20)
 Decision (user): consolidate at the best result rather than chase uncertain incremental gains
 against the data ceiling. **Deliverable = preview-0.9-broadgspo, 58.99 WER / 26.45 CER** (#1

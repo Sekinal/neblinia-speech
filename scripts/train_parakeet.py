@@ -99,24 +99,34 @@ def main():
     if args.max_samples:
         train_rows = train_rows[:args.max_samples]
 
-    # Parakeet's backward crashes (CUDA illegal access) on long sequences under torch 2.10
-    # (cpp extensions skipped). Filter clips by duration to stay in the safe range.
-    if args.max_secs > 0:
-        import soundfile as sf
-        def dur_ok(r):
-            try:
-                info = sf.info(r["audio"])
-                return args.min_secs <= info.frames / info.samplerate <= args.max_secs
-            except Exception:
-                return False
-        n0 = len(train_rows)
-        train_rows = [r for r in train_rows if dur_ok(r)]
-        dev_rows = [r for r in dev_rows if dur_ok(r)]
-        print(f"duration filter [{args.min_secs},{args.max_secs}]s: train {n0}->{len(train_rows)}", flush=True)
+    outdir0 = Path(args.outdir); outdir0.mkdir(parents=True, exist_ok=True)
+    import sentencepiece as _spm
+    _sp = build_spm([r["text"] for r in train_rows], outdir0 / "spm", args.vocab)
 
-    outdir = Path(args.outdir)
-    outdir.mkdir(parents=True, exist_ok=True)
-    sp = build_spm([r["text"] for r in train_rows], outdir / "spm", args.vocab)
+    # CTC backward crashes (CUDA illegal access) when the target (label) length exceeds the
+    # subsampled frame count: the alignment lattice goes out of bounds. Drop those clips.
+    # The encoder subsamples ~8x (10ms hop -> ~12.5 frames/sec). Require frames > labels+margin.
+    import soundfile as sf
+    def ok(r):
+        try:
+            info = sf.info(r["audio"])
+            dur = info.frames / info.samplerate
+            if not (args.min_secs <= dur <= args.max_secs):
+                return False
+            sub = int(dur * 100) // 8          # subsampled frames estimate
+            if sub <= len(_sp.encode(r["text"], out_type=int)) + 4:
+                return False
+            r["length"] = int(dur * 100)       # mel frames, for group_by_length batching
+            return True
+        except Exception:
+            return False
+    n0 = len(train_rows)
+    train_rows = [r for r in train_rows if ok(r)]
+    dev_rows = [r for r in dev_rows if ok(r)]
+    print(f"CTC length filter: train {n0}->{len(train_rows)} dev->{len(dev_rows)}", flush=True)
+
+    outdir = outdir0
+    sp = _sp                                 # reuse the spm trained above (for the filter)
     blank = sp.get_piece_size()              # CTC blank = new index after all pieces
     vocab_size = blank + 1
     print(f"sentencepiece pieces: {blank} + blank = {vocab_size}", flush=True)
@@ -134,7 +144,8 @@ def main():
     print(f"swapped ctc_head -> Conv1d({hidden}, {vocab_size})", flush=True)
 
     collator = CTCCollator(fe, sp)
-    mk = lambda rs: Dataset.from_list([{"audio": r["audio"], "text": r["text"]} for r in rs])
+    mk = lambda rs: Dataset.from_list([{"audio": r["audio"], "text": r["text"],
+                                        "length": r["length"]} for r in rs])
     train_ds, dev_ds = mk(train_rows), mk(dev_rows)
 
     if args.smoke:
@@ -179,7 +190,16 @@ def main():
         load_best_model_at_end=True, metric_for_best_model="wer", greater_is_better=False,
         report_to="none", remove_unused_columns=False, dataloader_num_workers=8,
         dataloader_prefetch_factor=4, label_names=["labels"])
-    trainer = Trainer(
+    # Length-grouped batching: batches of similar-length clips => minimal padding. Heavy
+    # padding (mixing short+long clips) is what triggers Parakeet's backward CUDA crash.
+    from transformers.trainer_pt_utils import LengthGroupedSampler
+
+    class GroupedTrainer(Trainer):
+        def _get_train_sampler(self, *a, **k):
+            return LengthGroupedSampler(self.args.train_batch_size, dataset=self.train_dataset,
+                                        lengths=list(self.train_dataset["length"]))
+
+    trainer = GroupedTrainer(
         model=model, args=targs, train_dataset=train_ds, eval_dataset=dev_ds,
         data_collator=collator, compute_metrics=compute_metrics,
         preprocess_logits_for_metrics=preprocess_logits_for_metrics)
