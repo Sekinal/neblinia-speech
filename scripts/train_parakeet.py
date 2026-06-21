@@ -111,6 +111,10 @@ def main():
     model.ctc_head = nn.Conv1d(hidden, vocab_size, kernel_size=1)
     model.config.vocab_size = vocab_size
     model.config.pad_token_id = blank
+    # The bf16 BACKWARD path crashes (CUDA illegal access) because Parakeet's cuda cpp
+    # extensions are skipped under torch 2.10 (needs 2.11). fp32 backward is correct and
+    # stable, so force fp32 weights and train in fp32 (bf16=False below).
+    model.float()
     model.to("cuda")
     print(f"swapped ctc_head -> Conv1d({hidden}, {vocab_size})", flush=True)
 
@@ -153,7 +157,8 @@ def main():
     targs = TrainingArguments(
         output_dir=str(outdir), per_device_train_batch_size=args.batch,
         per_device_eval_batch_size=args.batch, gradient_accumulation_steps=1,
-        learning_rate=args.lr, warmup_ratio=args.warmup, num_train_epochs=args.epochs, bf16=True,
+        learning_rate=args.lr, warmup_ratio=args.warmup, num_train_epochs=args.epochs,
+        bf16=False, fp16=False, max_grad_norm=1.0,   # fp32: bf16 backward crashes (see above)
         logging_steps=25, eval_strategy="steps", eval_steps=args.eval_steps,
         save_strategy="steps", save_steps=args.eval_steps, save_total_limit=2,
         load_best_model_at_end=True, metric_for_best_model="wer", greater_is_better=False,
