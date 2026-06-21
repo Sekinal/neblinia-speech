@@ -1,12 +1,12 @@
-"""NeblinIA-mini: a SIMPLE from-scratch autoregressive attention encoder-decoder (AED) for
-Mexican Indigenous ASR. Char-level (no OOV), small (~20M), trained from random init on our
-data. Baked from the campaign findings: autoregressive decoder (beats CTC), char tokenizer
-(beats OOV BPE/subword), SpecAugment + label smoothing, small model for tiny data.
+"""NeblinIA-mini: a from-scratch autoregressive attention encoder-decoder (AED) for Mexican
+Indigenous ASR. Char-level (no OOV), small (~11M), random init. Baked from the campaign
+findings: autoregressive decoder (beats CTC), char tokenizer (beats OOV BPE/subword),
+SpecAugment + label smoothing, small model for tiny data.
 
-Goal: a from-scratch FLOOR + a clean test of "autoregressive > CTC" independent of
-pretraining. Compare vs Whisper (59) and Parakeet-CTC (~93).
+Optimized data path: mels precomputed + cached once (fp16), length-bucketed batches (minimal
+padding), bf16 autocast, big batch -> GPU-bound, not data-starved.
 
-  .venv-unsloth/bin/python scripts/train_scratch.py [--smoke] [--epochs E] [--d 256] ...
+  .venv-parakeet/bin/python scripts/train_scratch.py [--smoke] [--epochs E] [--batch 64] ...
 """
 from __future__ import annotations
 import argparse, json, math, random, time
@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parent.parent
 TRAIN = ROOT / "data" / "train" / "manifest_indomain.jsonl"
 DEV = ROOT / "data" / "train" / "manifest_indomain_dev.jsonl"
 PAD, BOS, EOS = 0, 1, 2
-DEV_DEVICE = "cuda"
+DEVICE = "cuda"
 
 
 def build_vocab(texts):
@@ -54,7 +54,7 @@ class PositionalEncoding(nn.Module):
         return x + self.pe[:, :x.size(1)]
 
 
-def conv_out_len(L):                       # two conv2d stride2 pad1 k3 -> 4x downsample
+def conv_out_len(L):
     for _ in range(2):
         L = (L - 1) // 2 + 1
     return L
@@ -76,7 +76,7 @@ class AED(nn.Module):
         self.head = nn.Linear(d, V)
 
     def encode(self, mel, mel_len):
-        x = self.conv(mel.unsqueeze(1))                       # [B,d,T',F']
+        x = self.conv(mel.unsqueeze(1))
         B, C, Tp, Fp = x.shape
         x = x.permute(0, 2, 1, 3).reshape(B, Tp, C * Fp)
         x = self.encpos(self.proj(x))
@@ -91,7 +91,7 @@ class AED(nn.Module):
         out = self.dec(y, mem, tgt_mask=cmask, tgt_key_padding_mask=tpad,
                        memory_key_padding_mask=mmask)
         logits = self.head(out)
-        loss = F.cross_entropy(logits.reshape(-1, logits.size(-1)), tout.reshape(-1),
+        loss = F.cross_entropy(logits.reshape(-1, logits.size(-1)).float(), tout.reshape(-1),
                                ignore_index=PAD, label_smoothing=0.1)
         return loss, logits
 
@@ -128,9 +128,9 @@ def main():
     ap.add_argument("--d", type=int, default=256)
     ap.add_argument("--enc", type=int, default=6)
     ap.add_argument("--dec", type=int, default=4)
-    ap.add_argument("--epochs", type=int, default=40)
-    ap.add_argument("--lr", type=float, default=5e-4)
-    ap.add_argument("--batch", type=int, default=32)
+    ap.add_argument("--epochs", type=int, default=60)
+    ap.add_argument("--lr", type=float, default=7e-4)
+    ap.add_argument("--batch", type=int, default=64)
     ap.add_argument("--warmup", type=int, default=2000)
     ap.add_argument("--eval-every", type=int, default=1000)
     ap.add_argument("--dev-clips", type=int, default=400)
@@ -140,96 +140,115 @@ def main():
     args = ap.parse_args()
 
     tr = [json.loads(l) for l in open(TRAIN, encoding="utf-8")]
-    dv = [json.loads(l) for l in open(DEV, encoding="utf-8")]
+    dv = [json.loads(l) for l in open(DEV, encoding="utf-8")][:args.dev_clips]
     if args.max_samples:
         tr = tr[:args.max_samples]
     stoi, itos, V = build_vocab([r["text"] for r in tr])
     print(f"char vocab V={V} | train {len(tr)} | dev {len(dv)}", flush=True)
 
     melspec = torchaudio.transforms.MelSpectrogram(
-        sample_rate=16000, n_fft=400, hop_length=160, n_mels=80).to(DEV_DEVICE)
+        sample_rate=16000, n_fft=400, hop_length=160, n_mels=80).to(DEVICE)
     specaug = nn.Sequential(torchaudio.transforms.FrequencyMasking(27),
-                            torchaudio.transforms.TimeMasking(80)).to(DEV_DEVICE)
+                            torchaudio.transforms.TimeMasking(80)).to(DEVICE)
 
-    def feats(paths, train=False):
-        mels, lens = [], []
-        for p in paths:
-            a = torch.tensor(load_audio(p), device=DEV_DEVICE)
-            m = (melspec(a) + 1e-6).log()                    # [80, T]
-            mels.append(m.transpose(0, 1)); lens.append(m.size(1))
+    @torch.no_grad()
+    def precompute(rows):
+        cache = []
+        t0 = time.time()
+        for k, r in enumerate(rows):
+            a = torch.tensor(load_audio(r["audio"]), device=DEVICE)
+            m = (melspec(a) + 1e-6).log().transpose(0, 1)        # [T,80]
+            m = ((m - m.mean()) / (m.std() + 1e-5)).half().cpu()
+            ids = [BOS] + [stoi[c] for c in r["text"] if c in stoi] + [EOS]
+            cache.append((m, ids))
+            if k % 5000 == 0:
+                print(f"  precompute {k}/{len(rows)} ({time.time()-t0:.0f}s)", flush=True)
+        cache.sort(key=lambda x: x[0].size(0))                   # length bucketing
+        return cache
+
+    print("precomputing mels (cached once)...", flush=True)
+    train_cache = precompute(tr)
+    dev_cache = precompute(dv)
+
+    def collate(items, aug=False):
+        mels = [it[0] for it in items]
+        lens = [m.size(0) for m in mels]
         T = max(lens)
-        x = torch.zeros(len(mels), T, 80, device=DEV_DEVICE)
+        x = torch.zeros(len(mels), T, 80)
         for i, m in enumerate(mels):
-            x[i, :m.size(0)] = m
-        x = (x - x.mean()) / (x.std() + 1e-5)
-        if train:
+            x[i, :m.size(0)] = m.float()
+        x = x.to(DEVICE)
+        if aug:
             x = specaug(x.transpose(1, 2)).transpose(1, 2)
-        return x, torch.tensor(lens, device=DEV_DEVICE)
-
-    def labels(texts):
-        seqs = [[BOS] + [stoi[c] for c in t if c in stoi] + [EOS] for t in texts]
+        xl = torch.tensor(lens, device=DEVICE)
+        seqs = [it[1] for it in items]
         L = max(len(s) for s in seqs)
         tin = torch.full((len(seqs), L - 1), PAD, dtype=torch.long)
         tout = torch.full((len(seqs), L - 1), PAD, dtype=torch.long)
         for i, s in enumerate(seqs):
             tin[i, :len(s) - 1] = torch.tensor(s[:-1])
             tout[i, :len(s) - 1] = torch.tensor(s[1:])
-        tpad = tin == PAD
-        return tin.to(DEV_DEVICE), tout.to(DEV_DEVICE), tpad.to(DEV_DEVICE)
+        return x, xl, tin.to(DEVICE), tout.to(DEVICE), (tin == PAD).to(DEVICE)
 
-    model = AED(V, args.d, 4, args.enc, args.dec).to(DEV_DEVICE)
-    nparams = sum(p.numel() for p in model.parameters())
-    print(f"model params: {nparams/1e6:.1f}M", flush=True)
+    model = AED(V, args.d, 4, args.enc, args.dec).to(DEVICE)
+    print(f"model params: {sum(p.numel() for p in model.parameters())/1e6:.1f}M", flush=True)
 
     if args.smoke:
-        b = tr[:6]
-        x, xl = feats([r["audio"] for r in b], train=True)
-        tin, tout, tpad = labels([r["text"] for r in b])
-        loss, _ = model(x, xl, tin, tout, tpad)
+        x, xl, tin, tout, tpad = collate(train_cache[:6], aug=True)
+        with torch.autocast("cuda", dtype=torch.bfloat16):
+            loss, _ = model(x, xl, tin, tout, tpad)
         loss.backward()
-        print(f"SMOKE loss {float(loss):.3f} | mel{tuple(x.shape)} OK", flush=True)
-        hyp = model.greedy(x[:2], xl[:2], itos)
-        print("SMOKE greedy sample:", hyp, flush=True)
+        print(f"SMOKE loss {float(loss):.3f} mel{tuple(x.shape)} OK | greedy:",
+              model.greedy(x[:2], xl[:2], itos), flush=True)
         return
 
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, betas=(0.9, 0.98), weight_decay=0.01)
-    def lr_at(step):
-        return min(step / args.warmup, (args.warmup / max(step, 1)) ** 0.5)
+    def lr_at(s):
+        return min(s / args.warmup, (args.warmup / max(s, 1)) ** 0.5)
     outdir = Path(args.outdir); outdir.mkdir(parents=True, exist_ok=True)
     json.dump({"stoi": stoi}, open(outdir / "vocab.json", "w"), ensure_ascii=False)
+
+    # static length-bucketed batches (shuffle batch ORDER each epoch, keep length coherence)
+    batches = [list(range(i, min(i + args.batch, len(train_cache))))
+               for i in range(0, len(train_cache), args.batch)]
+    dev_batches = [list(range(i, min(i + args.batch, len(dev_cache))))
+                   for i in range(0, len(dev_cache), args.batch)]
+    print(f"batches/epoch {len(batches)} | total steps {len(batches)*args.epochs}", flush=True)
 
     @torch.no_grad()
     def dev_eval():
         model.eval()
-        sub = dv[:args.dev_clips]
         refs, hyps = [], []
-        for i in range(0, len(sub), args.batch):
-            ch = sub[i:i + args.batch]
-            x, xl = feats([r["audio"] for r in ch])
-            for h, r in zip(model.greedy(x, xl, itos), ch):
-                hyps.append(h.lower().strip()); refs.append(r["text"].lower().strip())
+        for b in dev_batches:
+            x, xl, _, _, _ = collate([dev_cache[j] for j in b])
+            with torch.autocast("cuda", dtype=torch.bfloat16):
+                hh = model.greedy(x, xl, itos)
+            for h, j in zip(hh, b):
+                hyps.append(h.lower().strip()); refs.append(sp_text(dev_cache[j]))
         model.train()
         pairs = [(r, h) for r, h in zip(refs, hyps) if r]
         rr, hh = zip(*pairs)
         return jiwer.wer(list(rr), list(hh)) * 100, jiwer.cer(list(rr), list(hh)) * 100
 
+    def sp_text(item):
+        return "".join(itos.get(t, "") for t in item[1][1:-1]).lower().strip()
+
     step, best = 0, 1e9
-    steps_per = max(1, len(tr) // args.batch)
-    print(f"steps/epoch {steps_per} | total {steps_per*args.epochs}", flush=True)
     for ep in range(args.epochs):
-        random.shuffle(tr)
-        for i in range(0, len(tr) - args.batch, args.batch):
-            ch = tr[i:i + args.batch]
-            x, xl = feats([r["audio"] for r in ch], train=True)
-            tin, tout, tpad = labels([r["text"] for r in ch])
-            loss, _ = model(x, xl, tin, tout, tpad)
+        random.shuffle(batches)
+        t0 = time.time()
+        for b in batches:
+            x, xl, tin, tout, tpad = collate([train_cache[j] for j in b], aug=True)
+            with torch.autocast("cuda", dtype=torch.bfloat16):
+                loss, _ = model(x, xl, tin, tout, tpad)
             opt.zero_grad(); loss.backward()
             nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             for g in opt.param_groups:
                 g["lr"] = args.lr * lr_at(step + 1)
             opt.step(); step += 1
-            if step % 50 == 0:
-                print(f"ep{ep} step{step} loss {float(loss):.3f} lr {opt.param_groups[0]['lr']:.2e}", flush=True)
+            if step % 100 == 0:
+                print(f"ep{ep} step{step} loss {float(loss):.3f} lr {opt.param_groups[0]['lr']:.2e} "
+                      f"{(time.time()-t0)/(b and 1):.2f}s", flush=True)
             if step % args.eval_every == 0:
                 w, c = dev_eval()
                 print(f"=== DEV step{step}: WER {w:.2f} CER {c:.2f} ===", flush=True)
