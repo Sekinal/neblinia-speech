@@ -1,0 +1,7 @@
+model,kind,wer,cer,tag
+"large-v3 SFT
+(flagship)",Whisper AED,54.4,24.2,best
+"turbo + GSPO RL
+(preview-0.1)",Whisper AED,59.0,26.5,prev
+"Parakeet CTC
+0.6B",CTC,90.0,,other
