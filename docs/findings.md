@@ -6,6 +6,23 @@ Indigenous languages. Current best **preview-0.3 (GSPO) = 66.0 WER / 28.3 CER**.
 
 ---
 
+### METRIC FRONTIER WORK — paused, fully resumable (2026-06-21)
+Built the **MEXA orthographic-normalization ladder** to decompose WER into orthographic classes
+vs genuine content error (the publishable "metric" contribution, chosen over the phonemic-decoder
+build because it's the prerequisite that tells us whether that build is even worth it).
+- `mexa-benchmark/scripts/mexa_normalize.py`: documented cumulative ladder
+  raw -> +tone -> +length -> +phoneme -> +despace (each rule cited to an audit substitution pair;
+  raw always reported; tone-fold is a segmental axis since tone is phonemic).
+- `mexa-benchmark/scripts/score_ladder.py <ct2> <cache.json> [per_lang_cap]`: transcribe once,
+  score every rung -> WER decomposition + per-family table (tonal OtoM should drop most at +tone).
+- **Status: PAUSED.** Not blocked on logic, blocked on inference speed: large-v3 + faster-whisper
+  temp-fallback takes ~2.5h on the full 5925-clip test (temp-fallback retries 5x on hard clips).
+- **RESUME**: run on TURBO + a subset for fast iteration:
+  `run_gpu.sh .venv/bin/python scripts/score_ladder.py <preview-0.9 ct2> /tmp/ladder.json 80`
+  (~12 min). Transcribe-once caches to the json, then re-score any rule change instantly. Validate
+  the per-family check, refine rules, write up the protocol. Open question the table answers: of
+  WER 54, how much is orthographic vs genuine -> decides if the phonemic-decoder build has headroom.
+
 ### ERROR AUDIT — the WER is orthographic noise, architecture is EXHAUSTED (2026-06-21)
 Ran an error audit on preview-0.9 (best model) over 200 dev clips. THE pivotal finding:
 - **WER 86.1 but CER 40.4** on the same outputs. The model gets ~60% of characters right but
