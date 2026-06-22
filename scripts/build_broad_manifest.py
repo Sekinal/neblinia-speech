@@ -13,10 +13,11 @@ CV clips are short single utterances -> no forced alignment, no materialization;
 soundfile reads the mp3s directly (the collator resamples 32k->16k).
 """
 from __future__ import annotations
-import argparse, csv, glob, json, random
+import argparse, csv, glob, json, os, random
 from pathlib import Path
 
-ROOT = Path("/root/foundational_asr")
+# portable: set NEBLINIA_DATA to your shared data root (see docs/RECREATE_DATA.md)
+ROOT = Path(os.environ.get("NEBLINIA_DATA", "/root/foundational_asr"))
 OMNI = ROOT / "data/train/manifest_indomain.jsonl"
 MDC = ROOT / "data/mdc"
 CV_LANGS = ["cut", "cux", "mau", "ncx", "nlv", "pua", "sei", "tar", "yaq", "zoc"]
